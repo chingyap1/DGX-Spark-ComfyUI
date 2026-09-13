@@ -55,6 +55,7 @@ PY
 #   2. maximum_vram_for_weights(): 95% instead of 88% (no separate VRAM pool)
 #   3. intermediate_device(): return GPU instead of CPU (same physical pool)
 #   4. soft_empty_cache(): skip empty_cache() to avoid page faults on re-alloc
+#   5. unload_all_models(): an explicit /free still physically empties the cache
 RUN python - <<'PY'
 from pathlib import Path
 
@@ -180,10 +181,37 @@ if old4 in text:
 else:
     print("WARNING: soft_empty_cache pattern not found")
 
+# 5. unload_all_models(): explicit /free must physically return the async pool's
+#    pages on unified memory. Patch 4's page-fault avoidance applies to the in-run
+#    soft_empty_cache() calls only; the queue worker's unload path (main.py prompt_worker
+#    -> model_management.unload_all_models) is the documented release event and must
+#    empty_cache() -- otherwise the released pile stays reserved in this process until
+#    exit and starves sibling GPU processes (observed on this host: ~38 GB pinned after
+#    an H3 video run, device free 47.75 GiB against a 60.84 GiB vLLM start need; the
+#    evicted LLM's cold start died at its memory gate until the container restarted).
+old5 = (
+    "def unload_all_models():\n"
+    "    for device in get_all_torch_devices():\n"
+    "        free_memory(1e30, device)\n"
+)
+new5 = (
+    "def unload_all_models():\n"
+    "    for device in get_all_torch_devices():\n"
+    "        free_memory(1e30, device)\n"
+    "    if UNIFIED_MEMORY and torch.cuda.is_available():\n"
+    "        torch.cuda.synchronize()\n"
+    "        torch.cuda.empty_cache()\n"
+)
+if old5 in text:
+    text = text.replace(old5, new5, 1)
+    applied += 1
+else:
+    print("WARNING: unload_all_models pattern not found")
+
 if applied == 0:
     raise SystemExit("No patches applied to model_management.py — all patterns missing")
 path.write_text(text)
-print(f"Applied {applied}/4 patches to model_management.py")
+print(f"Applied {applied}/5 patches to model_management.py")
 PY
 
 RUN pip install -r /opt/ComfyUI/requirements.txt

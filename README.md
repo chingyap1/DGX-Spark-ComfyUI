@@ -18,7 +18,7 @@ Built specifically to handle the quirks of the **sm_121 / compute 12.1** archite
 - **Comfy Kitchen** (`comfy_kitchen`) — NVFP4 quantization support for Blackwell
 - **Unified-memory optimized flags** — carefully tuned `COMFYUI_FLAGS` that avoid fighting the Grace-Blackwell memory fabric
 - **Double-VRAM bug fix** — patches `comfy/utils.py` to set `copy=False` in `tensor.to()`, fixing the double memory usage on unified memory systems with `--disable-mmap`
-- **Disabled dynamic vram** — uses `--disable-dynamic-vram` as it doesn't work properly on the Spark, if models fit in memory they won't be unloaded, faster prompt changes to final image/video
+- **Disabled dynamic vram** — uses `--disable-dynamic-vram` as it doesn't work properly on the Spark, if models fit in memory they won't be unloaded, faster prompt changes to final image/video. Page-fault avoidance applies to in-run cache management only: an explicit `POST /free` (Dockerfile patch 5) still physically returns the pool, so an evicted LLM backend can cold start after a video run without restarting the ComfyUI container
 - **ComfyUI-Manager** — auto-installed at container startup into the mounted `custom_nodes` volume
 - **ComfyUIMini** — lightweight mobile/tablet UI proxying to the ComfyUI backend (optional second service)
 - **Health checks** — both services expose health check endpoints for reliable `depends_on` startup ordering
@@ -104,6 +104,7 @@ The default `COMFYUI_FLAGS` are tuned for the Grace-Blackwell unified memory arc
 |---|---|
 | `--normalvram` | Enforces normal vram mode |
 | `--disable-dynamic-vram` | Disables dynamic vram, keeps models in memory as long as they fit, faster prompt changes to final output |
+| Dockerfile patch 5 (`POST /free`) | An explicit release physically empties the CUDA cache on unified memory, so the freed pool is actually available to the LLM backends; in-run iteration stays page-fault-free |
 | `--reserve-vram 1` | Reserves 1gb of vram to the system, i found it works a bit better with the other flags |
 | `--disable-pinned-memory` | Reduces overhead on the unified memory fabric; pinned memory is counterproductive here |
 | `--use-sage-attention` | Enables SageAttention compiled for sm_121 |
