@@ -26,8 +26,14 @@ RUN pip install -U pip setuptools wheel pynvml
 
 # ---- PyTorch (ARM64 + CUDA 13.0) ----
 # PyTorch cu130 wheels work with CUDA 13.0.x runtime.
+# Pinned: unpinned pulls drift to newer torch (e.g. 2.14.1+cu130), whose C++20
+# headers break SageAttention's c++17 extension build. 2.13.0 / 0.28.0 /
+# 2.11.0 are the known-good trio on this Spark (verified building
+# SageAttention@main 2026-10-01). torchaudio is not in ComfyUI's requirements
+# but ComfyUI-Manager's PIPFixer logs "PyTorch is not installed" if it is
+# missing, and audio/video custom nodes may import it.
 RUN pip install --index-url https://download.pytorch.org/whl/cu130 \
-    torch torchvision
+    torch==2.13.0 torchvision==0.28.0 torchaudio==2.11.0
 
 # ---- ComfyUI ----
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git /opt/ComfyUI && \
@@ -237,8 +243,10 @@ RUN pip install -r /opt/ComfyUI/requirements.txt
 ENV TORCH_CUDA_ARCH_LIST="12.1"
 ENV CUDA_HOME=/usr/local/cuda
 
-# Build/install SageAttention from repo with sm_121 support
-RUN pip install --no-build-isolation "git+https://github.com/thu-ml/SageAttention@${SAGEATTN_REF}" || true
+# Build/install SageAttention from repo with sm_121 support.
+# No `|| true`: the runtime flag --use-sage-attention makes a missing
+# sageattention a hard boot failure, so a broken build must fail the image.
+RUN pip install --no-build-isolation "git+https://github.com/thu-ml/SageAttention@${SAGEATTN_REF}"
 
 # Expose ComfyUI
 EXPOSE 8188
